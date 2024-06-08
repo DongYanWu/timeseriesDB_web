@@ -6,12 +6,10 @@ const path = require("path");
 const cors = require("cors");
 
 const app = express();
-const port = 3002; // Ensure this port matches your environment variable
+const port = 3002;
 
-// Enable CORS for all routes
 app.use(cors());
 
-// PostgreSQL connection pool
 const pool = new Pool({
   user: "wudongyan",
   host: "localhost",
@@ -35,7 +33,21 @@ async function importCsvToDb(filePath, tableName) {
     client.release();
   }
 }
+app.get("/companies/:tableName", async (req, res) => {
+  const tableName = req.params.tableName;
 
+  const client = await pool.connect();
+  try {
+    const query = `SELECT DISTINCT company FROM ${tableName} ORDER BY company`;
+    const result = await client.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Error fetching company names from ${tableName}:`, err);
+    res.status(500).send("Error fetching company names");
+  } finally {
+    client.release();
+  }
+});
 // API endpoint to upload CSV files
 app.post("/upload", upload.single("file"), async (req, res) => {
   const filePath = req.file.path;
@@ -55,31 +67,18 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-// API endpoint to fetch distinct company names from a table
-app.get("/companies/:tableName", async (req, res) => {
-  const tableName = req.params.tableName;
-
-  const client = await pool.connect();
-  try {
-    const query = `SELECT DISTINCT company FROM ${tableName} ORDER BY company`;
-    const result = await client.query(query);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(`Error fetching company names from ${tableName}:`, err);
-    res.status(500).send("Error fetching company names");
-  } finally {
-    client.release();
-  }
-});
-
 // API endpoint to fetch paginated and filtered data from a table
 app.get("/data/:tableName", async (req, res) => {
   const tableName = req.params.tableName;
   const limit = parseInt(req.query.limit, 10) || 15; // Default limit is 15
   const offset = parseInt(req.query.offset, 10) || 0; // Default offset is 0
   const company = req.query.company ? req.query.company.trim() : null;
-  const timestamp = req.query.timestamp;
+  const startTimestamp = req.query.startTimestamp || null;
+  const endTimestamp = req.query.endTimestamp || null;
   const price = req.query.price;
+
+  console.log("startTimestamp:", startTimestamp); // Debugging line
+  console.log("endTimestamp:", endTimestamp); // Debugging line
 
   const client = await pool.connect();
   try {
@@ -92,9 +91,14 @@ app.get("/data/:tableName", async (req, res) => {
       queryParams.push(company);
     }
 
-    if (timestamp) {
-      query += ` AND timestamp = $${paramIndex++}`;
-      queryParams.push(timestamp);
+    if (startTimestamp) {
+      query += ` AND timestamp >= $${paramIndex++}`;
+      queryParams.push(startTimestamp);
+    }
+
+    if (endTimestamp) {
+      query += ` AND timestamp < $${paramIndex++}`;
+      queryParams.push(endTimestamp);
     }
 
     if (price) {
